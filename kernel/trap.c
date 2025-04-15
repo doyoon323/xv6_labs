@@ -7,11 +7,6 @@
 #include "defs.h"
 
 
-#ifdef DEBUG
-printf("DEBUG: Proc[%d] yielded\n", p->pid);
-#endif
-
-
 struct spinlock tickslock;
 uint ticks;
 
@@ -91,16 +86,17 @@ if (which_dev == 2 && p && p->state == RUNNING) {
   p->runtime++;                          // 실제 실행 시간 1 tick 증가
   p->vruntime += (1024 / p->weight);       // 우선순위 보정된 vruntime 증가
   p->timeslice--;                        // 남은 timeslice 감소
-  printf("DEBUG: Timer interrupt for proc[%d]: runtime=%lu, vruntime=%lu, timeslice=%d\n",
-         p->pid, p->runtime, p->vruntime, p->timeslice);
+//  printf("DEBUG: Timer interrupt for proc[%d]: runtime=%lu, vruntime=%lu, timeslice=%d\n",
+     //    p->pid, p->runtime, p->vruntime, p->timeslice);
 
   if (p->timeslice == 0) {
     // 현재 프로세스 p의 내부 필드 업데이트를 위해 p->lock은 이미 잡혀 있다고 가정합니다.
     // (즉, usertrap() 타이머 인터럽트 처리 시작 전에 p->lock은 이미 제대로 잡힌 상태여야 함)
     p->vdeadline = p->vruntime + (5 * 1024 / p->weight);
+
     p->timeslice = 5;                      // 다음 라운드를 위해 재설정
-    printf("DEBUG: proc[%d] timeslice exhausted, vdeadline recalculated: %lu. Updating eligible...\n",
-           p->pid, p->vdeadline);
+  //  printf("DEBUG: proc[%d] timeslice exhausted, vdeadline recalculated: %lu. Updating eligible...\n",
+   //        p->pid, p->vdeadline);
 
     // --- eligible 계산 시작 ---
     uint64 v0 = (uint64)-1;  // 대상 프로세스 중 최소 vruntime을 구하기 위해 초기값으로 최댓값
@@ -127,7 +123,7 @@ if (which_dev == 2 && p && p->state == RUNNING) {
         release(&pr->lock);
       }
     }
-    printf("DEBUG: Eligible Calc Step1 complete: v0=%lu, total_weight=%d\n", v0, total_weight);
+    //printf("DEBUG: Eligible Calc Step1 complete: v0=%lu, total_weight=%d\n", v0, total_weight);
 
     // 2. 좌변: ∑((vruntime - v0) * weight) 계산
     uint64 left_sum = 0;
@@ -143,7 +139,7 @@ if (which_dev == 2 && p && p->state == RUNNING) {
         release(&pr->lock);
       }
     }
-    printf("DEBUG: Eligible Calc Step2 complete: left_sum=%lu\n", left_sum);
+    //printf("DEBUG: Eligible Calc Step2 complete: left_sum=%lu\n", left_sum);
 
     // 3. 각 대상 프로세스에 대해 eligible 결정
     for (int i = 0; i < NPROC; i++) {
@@ -153,16 +149,16 @@ if (which_dev == 2 && p && p->state == RUNNING) {
           uint64 right_term = (pr->vruntime - v0) * total_weight;
           // p는 현재 프로세스이므로 직접 업데이트:
           p->eligible = (left_sum >= right_term) ? 1 : 0;
-          printf("DEBUG: Eligible Calc Step3: proc[%d]: vruntime=%lu, right_term=%lu, eligible=%d (current p)\n",
-                 p->pid, p->vruntime, right_term, p->eligible);
+      //    printf("DEBUG: Eligible Calc Step3: proc[%d]: vruntime=%lu, right_term=%lu, eligible=%d (current p)\n",
+            //     p->pid, p->vruntime, right_term, p->eligible);
         }
       } else {
         acquire(&pr->lock);
         if (pr->state == RUNNABLE || pr->state == RUNNING) {
           uint64 right_term = (pr->vruntime - v0) * total_weight;
           pr->eligible = (left_sum >= right_term) ? 1 : 0;
-          printf("DEBUG: Eligible Calc Step3: proc[%d]: vruntime=%lu, right_term=%lu, eligible=%d\n",
-                 pr->pid, pr->vruntime, right_term, pr->eligible);
+        //  printf("DEBUG: Eligible Calc Step3: proc[%d]: vruntime=%lu, right_term=%lu, eligible=%d\n",
+          //       pr->pid, pr->vruntime, right_term, pr->eligible);
         } else {
           pr->eligible = 0;
         }

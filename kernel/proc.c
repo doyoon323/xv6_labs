@@ -7,11 +7,6 @@
 #include "defs.h"
 
 
-#ifdef DEBUG
-printf("DEBUG: Proc[%d] yielded\n", p->pid);
-#endif
-
-
 struct cpu cpus[NCPU]; // muti-core 
 
 struct proc proc[NPROC]; //array of process
@@ -329,10 +324,10 @@ fork(void)
   struct proc *np;
   struct proc *p = myproc();
 
-  printf("DEBUG: Fork called by proc[%d]\n", p->pid);
+ // printf("DEBUG: Fork called by proc[%d]\n", p->pid);
   // Allocate process.
   if((np = allocproc()) == 0){
-    printf("DEBUG: Fork failed: allocproc returned 0\n");
+    //printf("DEBUG: Fork failed: allocproc returned 0\n");
     return -1; //fail 
   }
 
@@ -342,7 +337,7 @@ fork(void)
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){//부모의 주소공간에서 자식의 주소공간으로 p->sz바이트만큼 메모리 복사 
     freeproc(np);
     release(&np->lock);
-    printf("DEBUG: Fork failed: uvmcopy error\n");
+    //printf("DEBUG: Fork failed: uvmcopy error\n");
     return -1; //fail 
   }
   np->sz = p->sz;
@@ -369,8 +364,8 @@ fork(void)
   np->runtime = 0;
   np->timeslice = 5;
   np->vdeadline = np->vruntime + (5 * 1024 / np->weight);
-  printf("DEBUG: Fork: Child proc[%d] created: vruntime=%lu, vdeadline=%lu, nice=%d, weight=%lu\n",
-    np->pid, np->vruntime, np->vdeadline, np->nice, np->weight);
+  //printf("DEBUG: Fork: Child proc[%d] created: vruntime=%lu, vdeadline=%lu, nice=%d, weight=%lu\n",
+    //np->pid, np->vruntime, np->vdeadline, np->nice, np->weight);
 
   release(&np->lock);
 
@@ -563,8 +558,8 @@ scheduler(void)
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE && p->eligible) {
-        printf("DEBUG: Scheduler sees proc[%d]: vdeadline=%lu, eligible=%d\n",
-               p->pid, p->vdeadline, p->eligible);
+        //printf("DEBUG: Scheduler sees proc[%d]: vdeadline=%lu, eligible=%d\n",
+          //     p->pid, p->vdeadline, p->eligible);
         if (first) {
           priority = p;
           first = 0;
@@ -581,7 +576,7 @@ scheduler(void)
       release(&p->lock);
     }
     if (first){ //대기모드로 들어감
-      printf("DEBUG: No process is RUNNABLE && eligible. CPU idling.\n");
+      //printf("DEBUG: No process is RUNNABLE && eligible. CPU idling.\n");
       // nothing to run; stop running on this core until an interrupt.
       intr_on(); 
       asm volatile("wfi");
@@ -590,9 +585,9 @@ scheduler(void)
     p = priority;
     p->state = RUNNING;
     c->proc = p;
-    printf("DEBUG: Scheduler selected proc[%d] with vdeadline=%lu\n", p->pid, p->vdeadline);
+    //printf("DEBUG: Scheduler selected proc[%d] with vdeadline=%lu\n", p->pid, p->vdeadline);
     swtch(&c->context, &p->context);
-    printf("DEBUG: Proc[%d] yielded back to scheduler\n", p->pid);
+    //printf("DEBUG: Proc[%d] yielded back to scheduler\n", p->pid);
     c->proc = 0;
     release(&p->lock);
   }
@@ -631,14 +626,15 @@ void
 yield(void)
 {
   struct proc *p = myproc();
-  printf("DEBUG: Proc[%d] yielding: state=%d, vruntime=%lu, vdeadline=%lu\n",
-    p->pid, p->state, p->vruntime, p->vdeadline);
+ // printf("DEBUG: Proc[%d] yielding: state=%d, vruntime=%lu, vdeadline=%lu\n",
+   // p->pid, p->state, p->vruntime, p->vdeadline);
   acquire(&p->lock);
   p->state = RUNNABLE;
   sched();
-  printf("DEBUG: Proc[%d] resumed after yield\n", p->pid);
+ //printf("DEBUG: Proc[%d] resumed after yield\n", p->pid);
 
   release(&p->lock);
+
 }
 
 // A fork child's very first scheduling by scheduler()
@@ -711,7 +707,7 @@ void
 wakeup(void *chan)
 {
   struct proc *p;
-  printf("DEBUG: wakeup called for chan %p\n", chan);
+  //printf("DEBUG: wakeup called for chan %p\n", chan);
 
   /*
   vruntime, nice, weight 유지
@@ -727,7 +723,7 @@ wakeup(void *chan)
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
-        printf("DEBUG: Waking up proc[%d]\n", p->pid);
+    //    printf("DEBUG: Waking up proc[%d]\n", p->pid);
       }
       release(&p->lock);
     }
