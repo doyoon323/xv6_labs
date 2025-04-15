@@ -99,7 +99,8 @@ usertrap(void)
     
     //eligible여기서 계산해둘것 = ∑((vi - v0) × wi) ≥ (vi - v0) × ∑wi
       //v0
-      for(pr = proc; pr < &proc[NPROC]; pr++) {
+      for (int i = 0; i < NPROC; i++) {
+        pr = &proc[i];
         if (pr == p){
           if (pr->state == RUNNABLE || pr->state == RUNNING) {
             if (first) {
@@ -126,7 +127,8 @@ usertrap(void)
       
         // 좌변우변 
       uint64 left=0,right=0,sum_w=0; 
-      for(pr = proc; pr < &proc[NPROC]; pr++) {
+      for (int i = 0; i < NPROC; i++) {
+        pr = &proc[i];
         if (pr == p) {
           if (pr->state == RUNNABLE || pr->state == RUNNING){
             left += (pr->vruntime - v0) * pr->weight;
@@ -142,8 +144,8 @@ usertrap(void)
         }
       }
 
-
-      for(pr = proc; pr < &proc[NPROC]; pr++) {
+      for (int i = 0; i < NPROC; i++) {
+        pr = &proc[i];
         if (pr == p) {
           if (pr->state == RUNNABLE || pr->state == RUNNING) {
             right = (pr->vruntime - v0) * sum_w;
@@ -158,7 +160,6 @@ usertrap(void)
           release(&pr->lock);
         }
       }
-  
       release(&p->lock);
       yield();     
       }
