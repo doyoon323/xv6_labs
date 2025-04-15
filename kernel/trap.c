@@ -84,14 +84,14 @@ usertrap(void)
     p->runtime++; //사용한 시간 1 ticks! 
     p->vruntime+= (1024/p->weight); // 우선순위 반영한 시간 ++
     p->timeslice--; // 5번 돌아야하니까 이거 0되면 yeild
+
     if (p->timeslice == 0){
       p->vdeadline = p->vruntime + (5*1024/p->weight);
-
       //eligible여기서 계산해둘것 = ∑((vi - v0) × wi) ≥ (vi - v0) × ∑wi
       uint64 v0=0,first=1;
-      
       struct proc *pr; 
-  
+
+    
       //v0
       for(pr = proc; pr < &proc[NPROC]; pr++) {
         acquire(&pr->lock);
@@ -125,6 +125,9 @@ usertrap(void)
           right =  (pr->vruntime - v0) * sum_w;
           if (left >= right) {
             pr -> eligible =1;
+          }
+          else{
+            pr -> eligible =0;
           }
         }
         release(&pr->lock);
