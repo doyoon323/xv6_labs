@@ -6,6 +6,12 @@
 #include "proc.h"
 #include "defs.h"
 
+
+#ifdef DEBUG
+printf("DEBUG: Proc[%d] yielded\n", p->pid);
+#endif
+
+
 struct cpu cpus[NCPU]; // muti-core 
 
 struct proc proc[NPROC]; //array of process
@@ -579,6 +585,7 @@ scheduler(void)
       // nothing to run; stop running on this core until an interrupt.
       intr_on(); 
       asm volatile("wfi");
+      continue;
     }
     p = priority;
     p->state = RUNNING;

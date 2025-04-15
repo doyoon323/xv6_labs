@@ -6,6 +6,12 @@
 #include "proc.h"
 #include "defs.h"
 
+
+#ifdef DEBUG
+printf("DEBUG: Proc[%d] yielded\n", p->pid);
+#endif
+
+
 struct spinlock tickslock;
 uint ticks;
 
@@ -79,75 +85,97 @@ usertrap(void)
   if(killed(p))
     exit(-1);
 
-  // 타이머 인터럽트 처리: 1 tick마다 처리
+ 
+   // give up the CPU if this is a timer interrupt. -> 1 tick마다 처리
 if (which_dev == 2 && p && p->state == RUNNING) {
-  p->runtime++;                              // 실제 실행 시간 1 tick 증가
-  p->vruntime += (1024 / p->weight);           // 가상 시간(공정성 보정) 증가
-  p->timeslice--;                            // 남은 timeslice 감소
+  p->runtime++;                          // 실제 실행 시간 1 tick 증가
+  p->vruntime += (1024 / p->weight);       // 우선순위 보정된 vruntime 증가
+  p->timeslice--;                        // 남은 timeslice 감소
   printf("DEBUG: Timer interrupt for proc[%d]: runtime=%lu, vruntime=%lu, timeslice=%d\n",
          p->pid, p->runtime, p->vruntime, p->timeslice);
 
   if (p->timeslice == 0) {
-    // 현재 프로세스 p의 내부 업데이트를 위해 p->lock을 잡음
-    acquire(&p->lock);
+    // 현재 프로세스 p의 내부 필드 업데이트를 위해 p->lock은 이미 잡혀 있다고 가정합니다.
+    // (즉, usertrap() 타이머 인터럽트 처리 시작 전에 p->lock은 이미 제대로 잡힌 상태여야 함)
     p->vdeadline = p->vruntime + (5 * 1024 / p->weight);
-    p->timeslice = 5;                        // 다음 라운드를 위해 재설정
+    p->timeslice = 5;                      // 다음 라운드를 위해 재설정
     printf("DEBUG: proc[%d] timeslice exhausted, vdeadline recalculated: %lu. Updating eligible...\n",
            p->pid, p->vdeadline);
 
     // --- eligible 계산 시작 ---
-    // 대상: 모든 프로세스 중 상태가 RUNNABLE 또는 RUNNING (과제 지침에 따라)
-    uint64 v0 = (uint64)-1;  // 최소 vruntime을 찾기 위해 매우 큰 값으로 초기화
+    uint64 v0 = (uint64)-1;  // 대상 프로세스 중 최소 vruntime을 구하기 위해 초기값으로 최댓값
     int total_weight = 0;
     struct proc *pr;
 
-    // 1. v0 및 total_weight 계산
+    // 1. 대상 프로세스들 (RUNNABLE 또는 RUNNING)의 v0와 total_weight 계산
     for (int i = 0; i < NPROC; i++) {
       pr = &proc[i];
-      acquire(&pr->lock);
-      if (pr->state == RUNNABLE || pr->state == RUNNING) {
-        if (pr->vruntime < v0)
-          v0 = pr->vruntime;
-        total_weight += pr->weight;
+      if (pr == p) {
+        // 현재 프로세스 p는 이미 락이 잡혀 있음.
+        if (pr->state == RUNNABLE || pr->state == RUNNING) {
+          if (pr->vruntime < v0)
+            v0 = pr->vruntime;
+          total_weight += pr->weight;
+        }
+      } else {
+        acquire(&pr->lock);
+        if (pr->state == RUNNABLE || pr->state == RUNNING) {
+          if (pr->vruntime < v0)
+            v0 = pr->vruntime;
+          total_weight += pr->weight;
+        }
+        release(&pr->lock);
       }
-      release(&pr->lock);
     }
-    printf("DEBUG: Eligible Calc Step1: v0=%lu, total_weight=%d\n", v0, total_weight);
+    printf("DEBUG: Eligible Calc Step1 complete: v0=%lu, total_weight=%d\n", v0, total_weight);
 
     // 2. 좌변: ∑((vruntime - v0) * weight) 계산
     uint64 left_sum = 0;
     for (int i = 0; i < NPROC; i++) {
       pr = &proc[i];
-      acquire(&pr->lock);
-      if (pr->state == RUNNABLE || pr->state == RUNNING) {
-        left_sum += (pr->vruntime - v0) * pr->weight;
+      if (pr == p) {
+        if (pr->state == RUNNABLE || pr->state == RUNNING)
+          left_sum += (pr->vruntime - v0) * pr->weight;
+      } else {
+        acquire(&pr->lock);
+        if (pr->state == RUNNABLE || pr->state == RUNNING)
+          left_sum += (pr->vruntime - v0) * pr->weight;
+        release(&pr->lock);
       }
-      release(&pr->lock);
     }
-    printf("DEBUG: Eligible Calc Step2: left_sum=%lu\n", left_sum);
+    printf("DEBUG: Eligible Calc Step2 complete: left_sum=%lu\n", left_sum);
 
     // 3. 각 대상 프로세스에 대해 eligible 결정
     for (int i = 0; i < NPROC; i++) {
       pr = &proc[i];
-      acquire(&pr->lock);
-      if (pr->state == RUNNABLE || pr->state == RUNNING) {
-        uint64 right_term = (pr->vruntime - v0) * total_weight;
-        pr->eligible = (left_sum >= right_term) ? 1 : 0;
-        printf("DEBUG: Eligible Calc Step3: proc[%d] vruntime=%lu, right_term=%lu, eligible=%d\n",
-               pr->pid, pr->vruntime, right_term, pr->eligible);
+      if (pr == p) {
+        if (pr->state == RUNNABLE || pr->state == RUNNING) {
+          uint64 right_term = (pr->vruntime - v0) * total_weight;
+          // p는 현재 프로세스이므로 직접 업데이트:
+          p->eligible = (left_sum >= right_term) ? 1 : 0;
+          printf("DEBUG: Eligible Calc Step3: proc[%d]: vruntime=%lu, right_term=%lu, eligible=%d (current p)\n",
+                 p->pid, p->vruntime, right_term, p->eligible);
+        }
       } else {
-        pr->eligible = 0;
+        acquire(&pr->lock);
+        if (pr->state == RUNNABLE || pr->state == RUNNING) {
+          uint64 right_term = (pr->vruntime - v0) * total_weight;
+          pr->eligible = (left_sum >= right_term) ? 1 : 0;
+          printf("DEBUG: Eligible Calc Step3: proc[%d]: vruntime=%lu, right_term=%lu, eligible=%d\n",
+                 pr->pid, pr->vruntime, right_term, pr->eligible);
+        } else {
+          pr->eligible = 0;
+        }
+        release(&pr->lock);
       }
-      release(&pr->lock);
     }
     // --- eligible 계산 끝 ---
     release(&p->lock);
-    yield();     
+    yield();
   }
 }
 usertrapret();
 }
-  
 
       
 
