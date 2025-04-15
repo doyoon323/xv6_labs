@@ -89,20 +89,22 @@ usertrap(void)
 
 
     if (p->timeslice == 0){
+      acquire(&p->lock);
       p->vdeadline = p->vruntime + (5*1024/p->weight);
       p->timeslice = 5; 
-      printf("DEBUG: proc[%d] timeslice exhausted, vdeadline recalculated: %lu. Yielding...\n",
-        p->pid, p->vdeadline);
-      //eligible여기서 계산해둘것 = ∑((vi - v0) × wi) ≥ (vi - v0) × ∑wi
       uint64 v0=0,first=1;
       struct proc *pr; 
+      printf("DEBUG: Timer interrupt for proc[%d]: runtime=%lu, vruntime=%lu, timeslice=%d\n",
+        p->pid, p->runtime, p->vruntime, p->timeslice);
+
 
     
-    
+    //eligible여기서 계산해둘것 = ∑((vi - v0) × wi) ≥ (vi - v0) × ∑wi
       //v0
       for(pr = proc; pr < &proc[NPROC]; pr++) {
-        acquire(&pr->lock);
-        printf("DEBUG: Acquired lock for proc[%d] (state: %d, vruntime: %lu)\n", pr->pid, pr->state, pr->vruntime);
+        if (pr != p) {
+          acquire(&pr->lock); 
+        }
 
         if(pr->state == RUNNABLE) {
           if (first){
@@ -114,29 +116,31 @@ usertrap(void)
             v0 = pr->vruntime;
           }
         }
-        printf("DEBUG: Releasing lock for proc[%d]\n", pr->pid);
-release(&pr->lock);
-        release(&pr->lock);
+        if (pr != p) {
+          release(&pr->lock);
+        }
       }
 
       // 좌변우변 
       uint64 left=0,right=0,sum_w=0; 
       for(pr = proc; pr < &proc[NPROC]; pr++) {
-        acquire(&pr->lock);
-printf("DEBUG: Acquired lock for proc[%d] (state: %d, vruntime: %lu)\n", pr->pid, pr->state, pr->vruntime);
+        if (pr != p) {
+          acquire(&pr->lock); 
+        }
         if(pr->state == RUNNABLE) {
           left += (pr->vruntime - v0) * pr->weight;
           sum_w += pr->weight;
         }
-        printf("DEBUG: Releasing lock for proc[%d]\n", pr->pid);
-release(&pr->lock);
-        release(&pr->lock);        
+        if (pr != p) {
+          release(&pr->lock);
+        }   
       }
 
       for(pr = proc; pr < &proc[NPROC]; pr++) {
-        acquire(&pr->lock);
-printf("DEBUG: Acquired lock for proc[%d] (state: %d, vruntime: %lu)\n", pr->pid, pr->state, pr->vruntime);
         if(pr->state == RUNNABLE) {
+          if (pr != p) {
+            acquire(&pr->lock); 
+          }
           right =  (pr->vruntime - v0) * sum_w;
           if (left >= right) {
             pr -> eligible =1;
@@ -144,16 +148,19 @@ printf("DEBUG: Acquired lock for proc[%d] (state: %d, vruntime: %lu)\n", pr->pid
           else{
             pr -> eligible =0;
           }
+
+        if (pr != p) {
+          release(&pr->lock);
+          }
         }
-        printf("DEBUG: Releasing lock for proc[%d]\n", pr->pid);
-release(&pr->lock);
-        release(&pr->lock);
       }
+      release(&p->lock);
       yield();     
     }
   }
   usertrapret();
 }
+
 // return to user space
 //
 void
