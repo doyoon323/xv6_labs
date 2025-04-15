@@ -43,8 +43,8 @@ entry("sleep");
 entry("uptime");
 
 #PA1 
-entry("getnice")
-entry("setnice")
-entry("ps")
-entry("meminfo")
-entry("waitpid")
+entry("getnice");
+entry("setnice");
+entry("ps");
+entry("meminfo");
+entry("waitpid");

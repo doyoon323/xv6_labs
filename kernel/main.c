@@ -40,8 +40,8 @@ main()
     trapinithart();   // install kernel trap vector
     plicinithart();   // ask PLIC for device interrupts
 
-    prinf("Student ID: 2023315676\n");
-    prinf("Name: Doyoon Kim\n");
+    printf("Student ID: 2023315676\n");
+    printf("Name: Doyoon Kim\n");
   }
 
   scheduler();        

@@ -529,7 +529,7 @@ fork/wakeup -> vruntime/nice 유지 + timeslice 초기화+ vdeadline 재계산
 void
 scheduler(void)
 {
-  struct proc *p,*priority;
+	struct proc *p=0,*priority=0;
   struct cpu *c = mycpu(); //이 CPU에서 현재돌고 있는 프로세스)
 
   c->proc = 0;//가 없음
@@ -843,6 +843,15 @@ ps(int pid)
 {
   struct proc *p;
   int first = 1;
+  static char* states[] = {
+  	[UNUSED] = "UNUSED",
+       	[USED] = "USED",
+       	[SLEEPING] = "SLEEPING",
+  	[RUNNABLE] = "RUNNABLE",
+       	[RUNNING] = "RUNNING", 
+	[ZOMBIE] = "ZOMBIE"
+	};
+	
   if (pid ==0){//전체
     printf("name     pid  state    priority  runtime/weight  runtime  vruntime  vdeadline  is_eligible  tick\n");
     for(p=proc;p<&proc[NPROC];p++){
@@ -850,10 +859,10 @@ ps(int pid)
         char *eligible = (p->eligible == 1) ? "true" : "false";
 
         //millitick 
-        printf("%-8s %-4d %-8s %-9d %-15lu %-8lu %-9lu %-10lu %-12s %-5lu\n",
+        printf("%-8s %-4d %-8s %-9d %-15lu %-8lu %-9lu %-10lu %-12s %u\n",
           p->name,
           p->pid,
-          p->state,
+          states[p->state],
           p->nice,
           (p->weight == 0) ? 0 : (p->runtime * 1000 / p->weight),
           p->runtime * 1000,
@@ -862,7 +871,6 @@ ps(int pid)
           eligible,
           ticks * 1000
         );
-      printf("%d     %d     %d          %d\n",&(p->name),&(p->pid),&(p->state),&(p->nice));
       }
     }  
   }
@@ -875,10 +883,10 @@ ps(int pid)
       if (pid == p->pid && p->state != UNUSED){
         char *eligible = (p->eligible == 1) ? "true" : "false";
 
-        printf("%-8s %-4d %-8s %-9d %-15lu %-8lu %-9lu %-10lu %-12s %-5lu\n",
+        printf("%-8s %-4d %-8s %-9d %-15lu %-8lu %-9lu %-10lu %-12s %u\n",
           p->name,
           p->pid,
-          p->state,
+          states[p->state],
           p->nice,
           (p->weight == 0) ? 0 : (p->runtime * 1000 / p->weight),
           p->runtime * 1000,
@@ -895,7 +903,7 @@ ps(int pid)
   
 
 
-uint64
+int
 meminfo(void)
 { 
   struct proc *p;

@@ -98,7 +98,7 @@ uint64
 sys_getnice(void)
 {
   int pid;
-  argint(0,&pid)
+  argint(0,&pid);
   return getnice(pid);
 }
 
@@ -132,6 +132,9 @@ sys_meminfo(void)
 uint64 
 sys_waitpid(void)
 {
-  
+  int pid;
+  argint(0,&pid);
+  ps(pid);
+  return waitpid(pid); 
 }
 
