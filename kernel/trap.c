@@ -1,0 +1,273 @@
+#include "types.h"
+#include "param.h"
+#include "memlayout.h"
+#include "riscv.h"
+#include "spinlock.h"
+#include "proc.h"
+#include "defs.h"
+
+struct spinlock tickslock;
+uint ticks;
+
+extern struct proc proc[];
+
+extern char trampoline[], uservec[], userret[];
+
+// in kernelvec.S, calls kerneltrap().
+void kernelvec();
+
+extern int devintr();
+
+void
+trapinit(void)
+{
+  initlock(&tickslock, "time");
+}
+
+// set up to take exceptions and traps while in the kernel.
+void
+trapinithart(void)
+{
+  w_stvec((uint64)kernelvec);
+}
+
+//
+// handle an interrupt, exception, or system call from user space.
+// called from trampoline.S
+//
+void
+usertrap(void)
+{
+  int which_dev = 0; // unint64 안 쓰는 이유 -> 수가 작아서 0~1,2..? 
+
+  if((r_sstatus() & SSTATUS_SPP) != 0)
+    panic("usertrap: not from user mode");
+
+  // send interrupts and exceptions to kerneltrap(),
+  // since we're now in the kernel.
+  w_stvec((uint64)kernelvec); //traphandler 를 kernelvec으로 설정. 이후 trap은 kernaltrap()으로 가야한다(init -> trampoline을 거쳐 usertrap으로 가다가)
+
+  struct proc *p = myproc();
+  
+  // save user program counter.
+  p->trapframe->epc = r_sepc(); //trap시점의 유저모드 pc 저장, 유저모드로 돌아갈 주소
+  
+  if(r_scause() == 8){
+    // system call
+
+    if(killed(p))
+      exit(-1);
+
+    // sepc points to the ecall instruction,
+    // but we want to return to the next instruction.
+    p->trapframe->epc += 4;
+    //trap발생시점 코드(init의 경우, initCode.S의 ecall)에서 +4byte하면 바로 다음줄로 돌아가겠죠?
+    
+    // an interrupt will change sepc, scause, and sstatus,
+    // so enable only now that we're done with those registers.
+    intr_on();
+
+    syscall(); //a7에 있는 syscall 호출 
+  } else if((which_dev = devintr()) != 0){
+    // ok
+  } else {
+    printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
+    printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
+    setkilled(p);
+  }
+
+  if(killed(p))
+    exit(-1);
+
+  // give up the CPU if this is a timer interrupt. -> 1 tick 마다 처리해야할 거 여기서 적음
+  if(which_dev == 2) {
+    p->runtime++; //사용한 시간 1 ticks! 
+    p->vruntime+= (1024/p->weight); // 우선순위 반영한 시간 ++
+    p->timeslice--; // 5번 돌아야하니까 이거 0되면 yeild
+    if (p->timeslice == 0){
+      p->vdeadline = p->vruntime + (5*1024/p->weight);
+
+      //eligible여기서 계산해둘것 = ∑((vi - v0) × wi) ≥ (vi - v0) × ∑wi
+      uint64 v0=0,first=1;
+      
+      struct proc *pr; 
+  
+      //v0
+      for(pr = proc; pr < &proc[NPROC]; pr++) {
+        acquire(&pr->lock);
+        if(pr->state == RUNNABLE) {
+          if (first){
+            v0 = pr->vruntime;
+            first=0;
+          }
+
+          if (pr->vruntime < v0){
+            v0 = pr->vruntime;
+          }
+        }
+        release(&pr->lock);
+      }
+
+      // 좌변우변 
+      uint64 left=0,right=0,sum_w=0; 
+      for(pr = proc; pr < &proc[NPROC]; pr++) {
+        acquire(&pr->lock);
+        if(pr->state == RUNNABLE) {
+          left += (pr->vruntime - v0) * pr->weight;
+          sum_w += pr->weight;
+        }
+        release(&pr->lock);        
+      }
+
+      for(pr = proc; pr < &proc[NPROC]; pr++) {
+        acquire(&pr->lock);
+        if(pr->state == RUNNABLE) {
+          right =  (pr->vruntime - v0) * sum_w;
+          if (left >= right) {
+            pr -> eligible =1;
+          }
+        }
+        release(&pr->lock);
+      }
+      yield();     
+    }
+  }
+  usertrapret();
+}
+// return to user space
+//
+void
+usertrapret(void)
+{
+  struct proc *p = myproc();
+
+  // we're about to switch the destination of traps from
+  // kerneltrap() to usertrap(), so turn off interrupts until
+  // we're back in user space, where usertrap() is correct.
+  intr_off();
+
+  // send syscalls, interrupts, and exceptions to uservec in trampoline.S
+  uint64 trampoline_uservec = TRAMPOLINE + (uservec - trampoline); // uservec의 정확한 가상 주소
+  w_stvec(trampoline_uservec);
+
+
+
+  // set up trapframe values that uservec will need when
+  // the process next traps into the kernel.
+  p->trapframe->kernel_satp = r_satp();         // kernel page table
+  p->trapframe->kernel_sp = p->kstack + PGSIZE; // process's kernel stack
+  p->trapframe->kernel_trap = (uint64)usertrap;
+  p->trapframe->kernel_hartid = r_tp();         // hartid for cpuid()
+
+  // set up the registers that trampoline.S's sret will use
+  // to get to user space.
+  
+  // set S Previous Privilege mode to User.
+  unsigned long x = r_sstatus();
+  x &= ~SSTATUS_SPP; // clear SPP to 0 for user mode
+  x |= SSTATUS_SPIE; // enable interrupts in user mode
+  w_sstatus(x);
+
+  // set S Exception Program Counter to the saved user pc.
+  w_sepc(p->trapframe->epc);
+//trap 당시 user가 epc에 저장된다.
+
+  // tell trampoline.S the user page table to switch to.
+  uint64 satp = MAKE_SATP(p->pagetable);
+
+
+
+  // jump to userret in trampoline.S at the top of memory, which 
+  // switches to the user page table, restores user registers,
+  // and switches to user mode with sret.
+  uint64 trampoline_userret = TRAMPOLINE + (userret - trampoline);
+  ((void (*)(uint64))trampoline_userret)(satp);
+}
+
+// interrupts and exceptions from kernel code go here via kernelvec,
+// on whatever the current kernel stack is.
+void 
+kerneltrap()
+{
+  int which_dev = 0;
+  uint64 sepc = r_sepc();
+  uint64 sstatus = r_sstatus();
+  uint64 scause = r_scause();
+  
+  if((sstatus & SSTATUS_SPP) == 0)
+    panic("kerneltrap: not from supervisor mode");
+  if(intr_get() != 0)
+    panic("kerneltrap: interrupts enabled");
+
+  if((which_dev = devintr()) == 0){
+    // interrupt or trap from an unknown source
+    printf("scause=0x%lx sepc=0x%lx stval=0x%lx\n", scause, r_sepc(), r_stval());
+    panic("kerneltrap");
+  }
+
+  // give up the CPU if this is a timer interrupt.
+  if(which_dev == 2 && myproc() != 0)
+    yield();
+
+  // the yield() may have caused some traps to occur,
+  // so restore trap registers for use by kernelvec.S's sepc instruction.
+  w_sepc(sepc);
+  w_sstatus(sstatus);
+}
+
+void
+clockintr()
+{
+  if(cpuid() == 0){
+    acquire(&tickslock);
+    ticks++;
+    wakeup(&ticks);
+    release(&tickslock);
+  }
+
+  // ask for the next timer interrupt. this also clears
+  // the interrupt request. 1000000 is about a tenth
+  // of a second.
+  w_stimecmp(r_time() + 100000);
+}
+
+// check if it's an external interrupt or software interrupt,
+// and handle it.
+// returns 2 if timer interrupt,
+// 1 if other device,
+// 0 if not recognized.
+int
+devintr()
+{
+  uint64 scause = r_scause();
+
+  if(scause == 0x8000000000000009L){
+    // this is a supervisor external interrupt, via PLIC.
+
+    // irq indicates which device interrupted.
+    int irq = plic_claim();
+
+    if(irq == UART0_IRQ){
+      uartintr();
+    } else if(irq == VIRTIO0_IRQ){
+      virtio_disk_intr();
+    } else if(irq){
+      printf("unexpected interrupt irq=%d\n", irq);
+    }
+
+    // the PLIC allows each device to raise at most one
+    // interrupt at a time; tell the PLIC the device is
+    // now allowed to interrupt again.
+    if(irq)
+      plic_complete(irq);
+
+    return 1;
+  } else if(scause == 0x8000000000000005L){
+    // timer interrupt.
+    clockintr();
+    return 2;
+  } else {
+    return 0;
+  }
+}
+
