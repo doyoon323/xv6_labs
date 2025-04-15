@@ -84,17 +84,26 @@ usertrap(void)
     p->runtime++; //사용한 시간 1 ticks! 
     p->vruntime+= (1024/p->weight); // 우선순위 반영한 시간 ++
     p->timeslice--; // 5번 돌아야하니까 이거 0되면 yeild
+    printf("DEBUG: Timer interrupt for proc[%d]: runtime=%lu, vruntime=%lu, timeslice=%d\n",
+      p->pid, p->runtime, p->vruntime, p->timeslice);
+
 
     if (p->timeslice == 0){
       p->vdeadline = p->vruntime + (5*1024/p->weight);
+      p->timeslice = 5; 
+      printf("DEBUG: proc[%d] timeslice exhausted, vdeadline recalculated: %lu. Yielding...\n",
+        p->pid, p->vdeadline);
       //eligible여기서 계산해둘것 = ∑((vi - v0) × wi) ≥ (vi - v0) × ∑wi
       uint64 v0=0,first=1;
       struct proc *pr; 
 
     
+    
       //v0
       for(pr = proc; pr < &proc[NPROC]; pr++) {
         acquire(&pr->lock);
+        printf("DEBUG: Acquired lock for proc[%d] (state: %d, vruntime: %lu)\n", pr->pid, pr->state, pr->vruntime);
+
         if(pr->state == RUNNABLE) {
           if (first){
             v0 = pr->vruntime;
@@ -105,6 +114,8 @@ usertrap(void)
             v0 = pr->vruntime;
           }
         }
+        printf("DEBUG: Releasing lock for proc[%d]\n", pr->pid);
+release(&pr->lock);
         release(&pr->lock);
       }
 
@@ -112,15 +123,19 @@ usertrap(void)
       uint64 left=0,right=0,sum_w=0; 
       for(pr = proc; pr < &proc[NPROC]; pr++) {
         acquire(&pr->lock);
+printf("DEBUG: Acquired lock for proc[%d] (state: %d, vruntime: %lu)\n", pr->pid, pr->state, pr->vruntime);
         if(pr->state == RUNNABLE) {
           left += (pr->vruntime - v0) * pr->weight;
           sum_w += pr->weight;
         }
+        printf("DEBUG: Releasing lock for proc[%d]\n", pr->pid);
+release(&pr->lock);
         release(&pr->lock);        
       }
 
       for(pr = proc; pr < &proc[NPROC]; pr++) {
         acquire(&pr->lock);
+printf("DEBUG: Acquired lock for proc[%d] (state: %d, vruntime: %lu)\n", pr->pid, pr->state, pr->vruntime);
         if(pr->state == RUNNABLE) {
           right =  (pr->vruntime - v0) * sum_w;
           if (left >= right) {
@@ -130,6 +145,8 @@ usertrap(void)
             pr -> eligible =0;
           }
         }
+        printf("DEBUG: Releasing lock for proc[%d]\n", pr->pid);
+release(&pr->lock);
         release(&pr->lock);
       }
       yield();     

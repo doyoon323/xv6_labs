@@ -543,6 +543,7 @@ scheduler(void)
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE && p->eligible) {
+        printf("DEBUG: Proc[%d]: vdeadline=%lu, eligible=%d\n", p->pid, p->vdeadline, p->eligible);
         if (first) {
           priority = p;
           first = 0;
@@ -605,9 +606,13 @@ void
 yield(void)
 {
   struct proc *p = myproc();
+  printf("DEBUG: Proc[%d] yielding: state=%d, vruntime=%lu, vdeadline=%lu\n",
+    p->pid, p->state, p->vruntime, p->vdeadline);
   acquire(&p->lock);
   p->state = RUNNABLE;
   sched();
+  printf("DEBUG: Proc[%d] resumed after yield\n", p->pid);
+
   release(&p->lock);
 }
 
