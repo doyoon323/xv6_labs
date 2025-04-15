@@ -100,44 +100,68 @@ usertrap(void)
     //eligible여기서 계산해둘것 = ∑((vi - v0) × wi) ≥ (vi - v0) × ∑wi
       //v0
       for(pr = proc; pr < &proc[NPROC]; pr++) {
-        if (pr == p) continue;
-        acquire(&pr->lock); 
-        if(pr->state == RUNNABLE) {
-          if (first){
-            v0 = pr->vruntime;
-            first=0;
+        if (pr == p){
+          if (pr->state == RUNNABLE || pr->state == RUNNING) {
+            if (first) {
+              v0 = pr->vruntime;
+              first = 0;
+            } else if (pr->vruntime < v0) {
+              v0 = pr->vruntime;
+            }
           }
-          if (pr->vruntime < v0)
-            v0 = pr->vruntime;
+        } else {
+          acquire(&pr->lock);
+          if (pr->state == RUNNABLE || pr->state == RUNNING) {
+            if (first) {
+              v0 = pr->vruntime;
+              first = 0;
+            } else if (pr->vruntime < v0) {
+              v0 = pr->vruntime;
+            }
+          }
+          release(&pr->lock);
         }
-        release(&pr->lock);
-        }
+      }
       
       
         // 좌변우변 
       uint64 left=0,right=0,sum_w=0; 
       for(pr = proc; pr < &proc[NPROC]; pr++) {
-        if (pr == p) continue;
-        acquire(&pr->lock); 
-        if(pr->state == RUNNABLE) {
-          left += (pr->vruntime - v0) * pr->weight;
-          sum_w += pr->weight;
+        if (pr == p) {
+          if (pr->state == RUNNABLE || pr->state == RUNNING){
+            left += (pr->vruntime - v0) * pr->weight;
+            sum_w += pr->weight;
+          }
+        } else {
+          acquire(&pr->lock);
+          if (pr->state == RUNNABLE || pr->state == RUNNING){
+            left += (pr->vruntime - v0) * pr->weight;
+            sum_w += pr->weight;
+          }
+          release(&pr->lock);
         }
-        release(&pr->lock);
       }
+
+
       for(pr = proc; pr < &proc[NPROC]; pr++) {
-        if (pr==p) continue;
-        acquire(&pr->lock); 
-        if(pr->state == RUNNABLE) {
-          right =  (pr->vruntime - v0) * sum_w;
-          if (left >= right) pr -> eligible =1;
-          else pr -> eligible =0;
+        if (pr == p) {
+          if (pr->state == RUNNABLE || pr->state == RUNNING) {
+            right = (pr->vruntime - v0) * sum_w;
+            p->eligible = (left >= right) ? 1 : 0;
+          }
+        } else {
+          acquire(&pr->lock);
+          if (pr->state == RUNNABLE || pr->state == RUNNING) {
+            right = (pr->vruntime - v0) * sum_w;
+            pr->eligible = (left >= right) ? 1 : 0;
+          }
+          release(&pr->lock);
         }
-        release(&pr->lock);
       }
-    }
-    release(&p->lock);
-    yield();     
+  
+      release(&p->lock);
+      yield();     
+      }
     }
     usertrapret();
   }
